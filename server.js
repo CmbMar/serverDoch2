@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
 
 // API_KEY pro autentizaci (musí být shodný s tím v process.env.API_KEY na frontendu)
-const SERVER_API_KEY = "AIzaSyAJAjjOV2iZpMBAie0YS0cM-NO42tMFC0s"; //process.env.API_KEY;
+const SERVER_API_KEY = process.env.API_KEY; //"AIzaSyAJAjjOV2iZpMBAie0YS0cM-NO42tMFC0s"; erer
 
 // Middleware
 app.use(cors());
