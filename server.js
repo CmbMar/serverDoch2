@@ -24,7 +24,7 @@ app.use(express.json({ limit: '50mb' })); // Zvýšený limit pro přenos komple
  */
 const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || authHeader !== `${SERVER_API_KEY}`) {
+  if (!authHeader || authHeader !== `Bearer ${SERVER_API_KEY}`) {
     console.warn(`[${new Date().toISOString()}] Auth: Neautorizovaný přístup odmítnut.`);
     return res.status(401).json({ error: 'Unauthorized' });
   }
