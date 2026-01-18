@@ -41,9 +41,9 @@ const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const apiKey = process.env.API_KEY;
  // console.log(`[${new Date().toISOString()}] Auth: Kontrola přístupu. ${apiKey}`);
-  if (!apiKey || authHeader === `Bearer ${apiKey}`) {
+ // if (!apiKey || authHeader === `Bearer ${apiKey}`) {
     return next();
-  }
+ // }
   
   console.warn(`[${new Date().toISOString()}] Auth: Neautorizovaný přístup.`);
   return res.status(401).json({ error: 'Unauthorized: Neplatný API klíč.' });
