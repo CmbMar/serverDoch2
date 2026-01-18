@@ -40,7 +40,7 @@ const getDefaultData = () => ({
 const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const apiKey = process.env.API_KEY;
-  console.log(`[${new Date().toISOString()}] Auth: Kontrola přístupu. ${apiKey}`);
+ // console.log(`[${new Date().toISOString()}] Auth: Kontrola přístupu. ${apiKey}`);
   if (!apiKey || authHeader === `Bearer ${apiKey}`) {
     return next();
   }
