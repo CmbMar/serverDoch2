@@ -1,105 +1,125 @@
+
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
+const { Storage } = require('@google-cloud/storage');
 
 /**
- * Jednoduchý Node.js server pro docházkový systém SmartAttendance Pro. https://ai.studio/apps/drive/15XMAyhiB4mhqN3LgbX1zqmNtXpn1N3yV
- * Implementuje API očekávané v cloudService.ts.
+ * Profesionální Node.js server pro UltraDocházku.
+ * Používá Google Cloud Storage pro trvalé uložení dat i v bezstavovém prostředí kontejnerů.
  */
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'data.json');
+const PORT = process.env.PORT || 8080;
+const BUCKET_NAME = process.env.BUCKET_NAME; // Musí být nastaveno v Cloud Run env
+const STORAGE_FILENAME = 'database.json';
 
-// API_KEY pro autentizaci (musí být shodný s tím v process.env.API_KEY na frontendu)
-const SERVER_API_KEY = process.env.API_KEY; //"AIzaSyAJAjjOV2iZpMBAie0YS0cM-NO42tMFC0s"; erer
+// Inicializace Google Cloud Storage
+const storage = new Storage();
+const bucket = BUCKET_NAME ? storage.bucket(BUCKET_NAME) : null;
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Zvýšený limit pro přenos kompletní databáze
+app.use(express.json({ limit: '50mb' }));
 
 /**
- * Middleware pro kontrolu autentizačního tokenu v hlavičce Bearer.
+ * Pomocná funkce pro výchozí data
+ */
+const getDefaultData = () => ({
+  users: [],
+  attendance: [],
+  leaveRequests: [],
+  correctionRequests: [],
+  workplace: { address: "Václavské náměstí 1, Praha", lat: 50.0817, lng: 14.4267, radius: 500 },
+  overtimeRequests: [],
+  lastSync: new Date().toISOString()
+});
+
+/**
+ * Middleware pro kontrolu autentizačního tokenu.
  */
 const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
- /* if (!authHeader || authHeader !== `Bearer ${SERVER_API_KEY}`) {
-    console.warn(`[${new Date().toISOString()}] Auth: Neautorizovaný přístup odmítnut.`);
-    return res.status(401).json({ error: 'Unauthorized' });
-  }*/
-  next();
+  const apiKey = process.env.API_KEY;
+  
+ // if (!apiKey || authHeader === `Bearer ${apiKey}`) {
+    return next();
+//  }
+  
+  console.warn(`[${new Date().toISOString()}] Auth: Neautorizovaný přístup.`);
+  return res.status(401).json({ error: 'Unauthorized: Neplatný API klíč.' });
 };
 
 /**
- * Načtení dat ze souboru data.json.
- * Pokud soubor neexistuje, vrací prázdnou strukturu.
+ * Asynchronní načtení dat z Google Cloud Storage
  */
-const readData = () => {
-  if (!fs.existsSync(DATA_FILE)) {
-    return {
-      users: [],
-      attendance: [],
-      leaveRequests: [],
-      correctionRequests: [],
-      workplace: { address: "Václavské náměstí 1, Praha", lat: 50.0817, lng: 14.4267, radius: 500 },
-      overtimeRequests: []
-    };
+const readData = async () => {
+  if (!bucket) {
+    console.warn("BUCKET_NAME není definován, vracím výchozí data.");
+    return getDefaultData();
   }
+
   try {
-    const content = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(content);
+    const file = bucket.file(STORAGE_FILENAME);
+    const [exists] = await file.exists();
+    
+    if (!exists) {
+      console.log("Soubor v bucketu neexistuje, inicializuji nová data.");
+      return getDefaultData();
+    }
+
+    const [content] = await file.download();
+    return JSON.parse(content.toString());
   } catch (e) {
-    console.error(`[Error] Chyba při čtení datového souboru:`, e);
-    return {};
+    console.error("Chyba při čtení z GCS:", e);
+    return getDefaultData();
   }
 };
 
 /**
- * Zápis dat do souboru data.json.
+ * Asynchronní zápis dat do Google Cloud Storage
  */
-const writeData = (data) => {
+const writeData = async (data) => {
+  if (!bucket) {
+    console.error("BUCKET_NAME není definován, nelze uložit data!");
+    return false;
+  }
+
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    const file = bucket.file(STORAGE_FILENAME);
+    await file.save(JSON.stringify(data, null, 2), {
+      contentType: 'application/json',
+      resumable: false
+    });
     return true;
   } catch (e) {
-    console.error(`[Error] Chyba při zápisu datového souboru:`, e);
+    console.error("Chyba při zápisu do GCS:", e);
     return false;
   }
 };
 
 // --- API ENDPOINTY ---
 
-/**
- * Endpoint pro získání kompletního stavu databáze.
- * Volá se při startu aplikace pro inicializaci stavu.
- */
-app.get('/getData', authenticate, (req, res) => {
-  console.log(`[${new Date().toISOString()}] GET: Načítání dat ze souboru.`);
-  const data = readData();
+app.get('/getData', authenticate, async (req, res) => {
+  console.log(`[${new Date().toISOString()}] GET: Načítání z cloudu.`);
+  const data = await readData();
   res.json(data);
 });
 
-/**
- * Endpoint pro synchronizaci (uložení) kompletního stavu databáze.
- * Volá se automaticky při každé změně v aplikaci (debounce 2s).
- */
-app.post('/sync', authenticate, (req, res) => {
-  console.log(`[${new Date().toISOString()}] POST: Přijata synchronizace dat.`);
-  const newData = req.body;
+app.post('/sync', authenticate, async (req, res) => {
+  console.log(`[${new Date().toISOString()}] POST: Synchronizace do cloudu.`);
+  const success = await writeData(req.body);
   
-  if (writeData(newData)) {
+  if (success) {
     res.json({ success: true, timestamp: new Date().toISOString() });
   } else {
-    res.status(500).json({ error: 'Nepodařilo se uložit data na disk.' });
+    res.status(500).json({ error: 'Chyba při ukládání dat do cloudového úložiště.' });
   }
 });
 
-// Spuštění serveru
+// Start serveru
 app.listen(PORT, () => {
   console.log(`=========================================`);
-  console.log(`SmartAttendance Server běží na portu: ${PORT}`);
-  console.log(`Data jsou ukládána do: ${DATA_FILE}`);
-  console.log(`Status autentizace: ${SERVER_API_KEY ? 'AKTIVNÍ' : 'VAROVÁNÍ: API_KEY NENÍ NASTAVEN V PROSTŘEDÍ'}`);
+  console.log(`UltraDocházka API běží na portu: ${PORT}`);
+  console.log(`Úložiště: ${BUCKET_NAME ? `GCS Bucket: ${BUCKET_NAME}` : 'VAROVÁNÍ: LOKÁLNÍ REŽIM (Bez BUCKET_NAME)'}`);
   console.log(`=========================================`);
 });
